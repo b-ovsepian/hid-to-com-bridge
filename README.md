@@ -29,6 +29,8 @@ HID Scanner (/dev/input/eventX)
 sudo ./setup.sh
 ```
 
+The installer tries to auto-detect scanner event via `/dev/input/by-id/*-event-kbd` and uses it as default. You can still enter another event manually when prompted.
+
 See [setup.sh](setup.sh) for details.
 
 ## Manual Install
@@ -46,9 +48,18 @@ sudo apt install python3-evdev
 cat /proc/bus/input/devices
 # or
 sudo evtest
+# or (best for USB scanners):
+ls -l /dev/input/by-id/
 ```
 
 Look for your scanner (usually named something like `USB Barcode Scanner`). Note its event node, e.g. `/dev/input/event1`.
+
+Quick verification:
+
+```bash
+sudo evtest /dev/input/event1
+# scan a code and confirm KEY_* events are printed
+```
 
 ### 3. Deploy the bridge script
 
@@ -74,7 +85,7 @@ Description=HID to COM Bridge
 After=multi-user.target
 
 [Service]
-ExecStart=/usr/local/bin/hid-to-com-bridge.py
+ExecStart=/usr/bin/python3 /usr/local/bin/hid-to-com-bridge.py
 Restart=always
 User=root
 
@@ -133,6 +144,13 @@ cat /dev/ttyQR0
 | No output on scan                  | Wrong event device — run `evtest` to find correct one                |
 | Permission denied on `/dev/ttyQR0` | Add your user to `dialout` group: `sudo usermod -aG dialout $USER`   |
 | Service fails to start             | Check Python and evdev: `python3 -c "from evdev import InputDevice"` |
+
+If you see `python3\r: No such file or directory`, convert line endings:
+
+```bash
+sudo sed -i 's/\r$//' /usr/local/bin/hid-to-com-bridge.py
+sudo systemctl restart hid-com-bridge
+```
 
 ## Logs
 

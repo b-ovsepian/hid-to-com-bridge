@@ -23,7 +23,21 @@ echo ""
 cat /proc/bus/input/devices | grep -A5 "EV=.*120013\|Kbd" | grep -E "Name|Handlers" || true
 echo ""
 
-DEFAULT_EVENT="event1"
+AUTO_EVENT=""
+if [[ -d /dev/input/by-id ]]; then
+    shopt -s nullglob
+    for kbd_link in /dev/input/by-id/*-event-kbd; do
+        resolved_path="$(readlink -f "$kbd_link" 2>/dev/null || true)"
+        if [[ -n "$resolved_path" && "$resolved_path" == /dev/input/event* ]]; then
+            AUTO_EVENT="$(basename "$resolved_path")"
+            echo "Auto-detected scanner candidate: $kbd_link -> $resolved_path"
+            break
+        fi
+    done
+    shopt -u nullglob
+fi
+
+DEFAULT_EVENT="${AUTO_EVENT:-event1}"
 read -rp "Enter scanner event device (default: ${DEFAULT_EVENT}): " EVENT_INPUT
 EVENT="${EVENT_INPUT:-$DEFAULT_EVENT}"
 EVENT_PATH="/dev/input/${EVENT}"
@@ -42,6 +56,8 @@ if [[ ! -f "$SCRIPT_SRC" ]]; then
 fi
 
 cp "$SCRIPT_SRC" "$SCRIPT_DEST"
+# normalize potential Windows line endings to avoid shebang issues under systemd
+sed -i 's/\r$//' "$SCRIPT_DEST"
 # patch event device if user chose a different one
 sed -i "s|InputDevice(\"/dev/input/event[^\"]*\")|InputDevice(\"$EVENT_PATH\")|g" "$SCRIPT_DEST"
 chmod +x "$SCRIPT_DEST"
@@ -55,7 +71,7 @@ Description=HID to COM Bridge
 After=multi-user.target
 
 [Service]
-ExecStart=$SCRIPT_DEST
+ExecStart=/usr/bin/python3 $SCRIPT_DEST
 Restart=always
 RestartSec=3
 User=root
