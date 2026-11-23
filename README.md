@@ -29,7 +29,7 @@ HID Scanner (/dev/input/eventX)
 sudo ./setup.sh
 ```
 
-The installer tries to auto-detect scanner event via `/dev/input/by-id/*-event-kbd` and uses it as default. You can still enter another event manually when prompted.
+The installer auto-detects the scanner via `/dev/input/by-id/*-event-kbd` and stores that **stable by-id link** as `SCANNER_DEVICE` in the systemd unit. Do not use `/dev/input/eventN`: the number depends on enumeration order and changes between boots and after a re-plug (e.g. a board `gpio-keys` button can take `event0`), and the bridge then silently reads the wrong device. Without `SCANNER_DEVICE` the bridge picks the first `/dev/input/by-id/*-event-kbd` at every start; if no scanner is found it exits and systemd retries.
 
 See [setup.sh](setup.sh) for details.
 
@@ -68,11 +68,10 @@ sudo cp hid-to-com-bridge.py /usr/local/bin/hid-to-com-bridge.py
 sudo chmod +x /usr/local/bin/hid-to-com-bridge.py
 ```
 
-If your device is **not** on `/dev/input/event1`, edit the script:
+The script finds the scanner itself (first `/dev/input/by-id/*-event-kbd`). To pin it, set the by-id link in the service (step 4):
 
-```bash
-sudo nano /usr/local/bin/hid-to-com-bridge.py
-# Change: scanner = InputDevice("/dev/input/event1")
+```ini
+Environment=SCANNER_DEVICE=/dev/input/by-id/usb-<your-scanner>-event-kbd
 ```
 
 ### 4. Create the systemd service

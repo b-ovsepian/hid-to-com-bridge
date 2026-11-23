@@ -23,27 +23,26 @@ echo ""
 cat /proc/bus/input/devices | grep -A5 "EV=.*120013\|Kbd" | grep -E "Name|Handlers" || true
 echo ""
 
-AUTO_EVENT=""
+AUTO_DEV=""
 if [[ -d /dev/input/by-id ]]; then
     shopt -s nullglob
     for kbd_link in /dev/input/by-id/*-event-kbd; do
-        resolved_path="$(readlink -f "$kbd_link" 2>/dev/null || true)"
-        if [[ -n "$resolved_path" && "$resolved_path" == /dev/input/event* ]]; then
-            AUTO_EVENT="$(basename "$resolved_path")"
-            echo "Auto-detected scanner candidate: $kbd_link -> $resolved_path"
-            break
-        fi
+        AUTO_DEV="$kbd_link"
+        echo "Auto-detected scanner candidate: $kbd_link -> $(readlink -f "$kbd_link")"
+        break
     done
     shopt -u nullglob
 fi
 
-DEFAULT_EVENT="${AUTO_EVENT:-event1}"
-read -rp "Enter scanner event device (default: ${DEFAULT_EVENT}): " EVENT_INPUT
-EVENT="${EVENT_INPUT:-$DEFAULT_EVENT}"
-EVENT_PATH="/dev/input/${EVENT}"
+# Keep the stable by-id link, NOT the eventN it points to now: eventN changes between boots
+# and after a re-plug (another input device can take the number), and the bridge then reads
+# the wrong device silently.
+read -rp "Enter scanner device (default: ${AUTO_DEV:-auto-detect at every start}): " DEV_INPUT
+SCANNER_DEVICE="${DEV_INPUT:-$AUTO_DEV}"
+[[ -n "$SCANNER_DEVICE" && "$SCANNER_DEVICE" != /* ]] && SCANNER_DEVICE="/dev/input/$SCANNER_DEVICE"
 
-if [[ ! -e "$EVENT_PATH" ]]; then
-    echo "WARNING: $EVENT_PATH does not exist. You can change it later in $SCRIPT_DEST"
+if [[ -n "$SCANNER_DEVICE" && ! -e "$SCANNER_DEVICE" ]]; then
+    echo "WARNING: $SCANNER_DEVICE does not exist. Change it later: SCANNER_DEVICE in $SERVICE_FILE"
 fi
 
 # ── deploy bridge script ──────────────────────────────────────────────────────
@@ -58,8 +57,6 @@ fi
 cp "$SCRIPT_SRC" "$SCRIPT_DEST"
 # normalize potential Windows line endings to avoid shebang issues under systemd
 sed -i 's/\r$//' "$SCRIPT_DEST"
-# patch event device if user chose a different one
-sed -i "s|InputDevice(\"/dev/input/event[^\"]*\")|InputDevice(\"$EVENT_PATH\")|g" "$SCRIPT_DEST"
 chmod +x "$SCRIPT_DEST"
 
 # ── create systemd service ────────────────────────────────────────────────────
@@ -71,6 +68,7 @@ Description=HID to COM Bridge
 After=multi-user.target
 
 [Service]
+Environment=SCANNER_DEVICE=$SCANNER_DEVICE
 ExecStart=/usr/bin/python3 $SCRIPT_DEST
 Restart=always
 RestartSec=3

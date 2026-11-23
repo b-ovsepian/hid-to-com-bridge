@@ -1,10 +1,33 @@
 #!/usr/bin/env python3
 
+import glob
 import os
 import pty
+import sys
 from evdev import InputDevice, ecodes, categorize
 
-scanner = InputDevice("/dev/input/event1")
+
+def find_scanner():
+    """Scanner path, resolved at every start.
+
+    /dev/input/eventN numbers depend on enumeration order and change between boots and
+    after a re-plug (a board button can take event0), so never hard-code eventN. Use
+    SCANNER_DEVICE (set by setup.sh to the stable /dev/input/by-id/...-event-kbd link)
+    or, if unset, the first by-id keyboard device.
+    """
+    path = os.environ.get("SCANNER_DEVICE") or (sys.argv[1] if len(sys.argv) > 1 else "")
+    if not path:
+        found = sorted(glob.glob("/dev/input/by-id/*-event-kbd"))
+        path = found[0] if found else ""
+    if not path or not os.path.exists(path):
+        # exit non-zero: systemd (Restart=always) retries until the scanner shows up
+        sys.exit("scanner not found (SCANNER_DEVICE=%r)" % path)
+    return path
+
+
+scanner_path = find_scanner()
+scanner = InputDevice(scanner_path)
+print("SCANNER:", scanner_path, "->", os.path.realpath(scanner_path), scanner.name, flush=True)
 
 # create REAL kernel PTY
 master_fd, slave_fd = pty.openpty()
@@ -19,7 +42,7 @@ except:
 
 os.symlink(tty_name, "/dev/ttyQR0")
 
-print("COM PORT READY:", tty_name, "-> /dev/ttyQR0")
+print("COM PORT READY:", tty_name, "-> /dev/ttyQR0", flush=True)
 
 buffer = ""
 shift = False
