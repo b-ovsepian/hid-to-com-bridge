@@ -13,11 +13,14 @@ def find_scanner():
     /dev/input/eventN numbers depend on enumeration order and change between boots and
     after a re-plug (a board button can take event0), so never hard-code eventN. Use
     SCANNER_DEVICE (set by setup.sh to the stable /dev/input/by-id/...-event-kbd link)
-    or, if unset, the first by-id keyboard device.
+    or, if unset, the only by-id keyboard device (several -> refuse).
     """
-    path = os.environ.get("SCANNER_DEVICE") or (sys.argv[1] if len(sys.argv) > 1 else "")
+    path = (sys.argv[1] if len(sys.argv) > 1 else "") or os.environ.get("SCANNER_DEVICE", "")
     if not path:
         found = sorted(glob.glob("/dev/input/by-id/*-event-kbd"))
+        if len(found) > 1:
+            # another USB keyboard (or a receiver with a kbd interface) would be picked silently
+            sys.exit("several keyboard devices, set SCANNER_DEVICE to one of: " + ", ".join(found))
         path = found[0] if found else ""
     if not path or not os.path.exists(path):
         # exit non-zero: systemd (Restart=always) retries until the scanner shows up

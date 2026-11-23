@@ -23,23 +23,29 @@ echo ""
 cat /proc/bus/input/devices | grep -A5 "EV=.*120013\|Kbd" | grep -E "Name|Handlers" || true
 echo ""
 
+shopt -s nullglob
+CANDIDATES=(/dev/input/by-id/*-event-kbd)
+shopt -u nullglob
+for c in "${CANDIDATES[@]}"; do echo "  candidate: $c -> $(readlink -f "$c")"; done
 AUTO_DEV=""
-if [[ -d /dev/input/by-id ]]; then
-    shopt -s nullglob
-    for kbd_link in /dev/input/by-id/*-event-kbd; do
-        AUTO_DEV="$kbd_link"
-        echo "Auto-detected scanner candidate: $kbd_link -> $(readlink -f "$kbd_link")"
-        break
-    done
-    shopt -u nullglob
-fi
+# only one keyboard-like device -> default to it; several -> the admin must choose (a USB keyboard
+# plugged in during setup would otherwise be pinned instead of the scanner)
+[[ ${#CANDIDATES[@]} -eq 1 ]] && AUTO_DEV="${CANDIDATES[0]}"
 
 # Keep the stable by-id link, NOT the eventN it points to now: eventN changes between boots
 # and after a re-plug (another input device can take the number), and the bridge then reads
 # the wrong device silently.
-read -rp "Enter scanner device (default: ${AUTO_DEV:-auto-detect at every start}): " DEV_INPUT
+read -rp "Enter scanner device (default: ${AUTO_DEV:-none, choose one above}): " DEV_INPUT || true
 SCANNER_DEVICE="${DEV_INPUT:-$AUTO_DEV}"
-[[ -n "$SCANNER_DEVICE" && "$SCANNER_DEVICE" != /* ]] && SCANNER_DEVICE="/dev/input/$SCANNER_DEVICE"
+case "$SCANNER_DEVICE" in
+    "" | /*) ;;
+    usb-* | platform-* | pci-*) SCANNER_DEVICE="/dev/input/by-id/$SCANNER_DEVICE" ;;
+    *) SCANNER_DEVICE="/dev/input/$SCANNER_DEVICE" ;;
+esac
+case "$SCANNER_DEVICE" in /dev/input/event*) echo "WARNING: $SCANNER_DEVICE is not stable across reboots, prefer /dev/input/by-id/..." ;; esac
+if [[ -z "$SCANNER_DEVICE" && ${#CANDIDATES[@]} -gt 1 ]]; then
+    echo "ERROR: several keyboard devices found, run again and choose the scanner"; exit 1
+fi
 
 if [[ -n "$SCANNER_DEVICE" && ! -e "$SCANNER_DEVICE" ]]; then
     echo "WARNING: $SCANNER_DEVICE does not exist. Change it later: SCANNER_DEVICE in $SERVICE_FILE"
@@ -68,8 +74,9 @@ Description=HID to COM Bridge
 After=multi-user.target
 
 [Service]
-Environment=SCANNER_DEVICE=$SCANNER_DEVICE
+Environment="SCANNER_DEVICE=$SCANNER_DEVICE"
 ExecStart=/usr/bin/python3 $SCRIPT_DEST
+ExecStopPost=/bin/rm -f /dev/ttyQR0
 Restart=always
 RestartSec=3
 User=root
@@ -82,7 +89,7 @@ EOF
 echo "[5/5] Enabling and starting hid-com-bridge service..."
 systemctl daemon-reload
 systemctl enable hid-com-bridge
-systemctl start hid-com-bridge
+systemctl restart hid-com-bridge   # restart: a re-run must load the new script and unit
 
 # ── result ────────────────────────────────────────────────────────────────────
 echo ""
